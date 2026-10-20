@@ -96,6 +96,17 @@ jobs:
           chmod 600 "$RUNNER_TEMP/erafall-release.jks"
           echo "Keystore decoded (contents not shown)."
 
+      - name: Check keystore opens with store password
+        env:
+          ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
+        run: |
+          set -euo pipefail
+          if ! keytool -list -keystore "$RUNNER_TEMP/erafall-release.jks" -storepass "$ERAFALL_STORE_PASSWORD" > /dev/null 2>&1; then
+            echo "Keystore could not be opened using ERAFALL_STORE_PASSWORD (wrong password, incompatible or damaged key file)." >&2
+            exit 1
+          fi
+          echo "Keystore password validated independently of the alias."
+
       - name: Check release keystore and alias
         env:
           ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
