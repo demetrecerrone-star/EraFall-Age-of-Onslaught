@@ -178,6 +178,17 @@ jobs:
           emulator-boot-timeout: 600
           script: bash .github/scripts/smoke-test.sh
 
+      - name: Upload Android visual QA captures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: EraFall-0.2-emulator-screens
+          path: |
+            build/erafall-title-emulator.png
+            build/erafall-gameplay-emulator.png
+          if-no-files-found: ignore
+          retention-days: 14
+
       - name: Delete temporary signing key
         if: always()
         run: rm -f "$RUNNER_TEMP/erafall-release.jks"
