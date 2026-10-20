@@ -119,11 +119,13 @@ func _create_world() -> void:
 
     camera = Camera3D.new()
     camera.position = Vector3(0.0, 22.0, 28.0)
-    camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
     camera.fov = 51.0
     camera.far = 110.0
     camera.current = true
+    # Node3D.look_at needs an active tree/global transform. Calling it
+    # before add_child leaves the camera facing the horizon on Android.
     add_child(camera)
+    camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
 
     arena = Node3D.new()
     arena.name = "LevelObjects"
