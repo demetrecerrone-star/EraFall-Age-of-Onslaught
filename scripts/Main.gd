@@ -48,6 +48,7 @@ var logo_image: TextureRect
 var logo_fallback: Label
 var title_background: TextureRect
 var panel_kind := ""
+var art_title_enabled := false
 
 
 func _ready() -> void:
@@ -427,7 +428,8 @@ func _refresh_menu() -> void:
     var era := Catalog.get_era(era_index)
     era_label.text = str(era["name"]).to_upper() + "  |  " + str(era["weapon"])
     tagline.text = "Hunt. Recruit. Conquer. Evolve.\nEarned Gold: %d   |   Tribe Strength: %d" % [gold, 1 + attack_upgrade]
-    play_button.texture_normal = load(str(era["button"])) as Texture2D
+    if not art_title_enabled:
+        play_button.texture_normal = load(str(era["button"])) as Texture2D
     _paint_era()
     _update_logo()
 
@@ -506,6 +508,9 @@ func _create_ui() -> void:
     logo_fallback.offset_top = -264
     logo_fallback.offset_bottom = -194
 
+    # Use the original illustrated title and four extracted button textures when available.
+    _add_approved_title_art()
+
     hud = Control.new()
     hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -567,6 +572,12 @@ func _create_ui() -> void:
 
 
 func _update_logo() -> void:
+    if art_title_enabled:
+        # The approved artwork already includes both logos.
+        logo_image.visible = false
+        logo_fallback.visible = false
+        title_background.visible = false
+        return
     # Never invent or redraw the user's actual emblem; use it once imported.
     var emblem := "res://assets/branding/dabsky_emblem.png"
     var title_art := "res://assets/branding/title_background.png"
@@ -592,12 +603,86 @@ func _label(parent: Node, value: String, size: int, color: Color) -> Label:
 
 
 func _image_button(parent: Node, texture_path: String) -> TextureButton:
+    # Godot SVG textures do not reliably render SVG <text> elements.
     var button := TextureButton.new()
     button.ignore_texture_size = true
     button.custom_minimum_size = Vector2(150, 94)
     button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
     button.texture_normal = load(texture_path) as Texture2D
     button.stretch_mode = TextureButton.STRETCH_SCALE
+    parent.add_child(button)
+    var caption := ""
+    if "play_" in texture_path:
+        caption = "PLAY"
+    elif "upgrades" in texture_path:
+        caption = "UPGRADES"
+    elif "collection" in texture_path:
+        caption = "COLLECTION"
+    elif "settings" in texture_path:
+        caption = "SETTINGS"
+    if not caption.is_empty():
+        var label := _label(button, caption, 21 if caption.length() > 6 else 27, Color("#fff3d6"))
+        label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+        label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+        label.add_theme_color_override("font_shadow_color", Color("#1c1315"))
+        label.add_theme_constant_override("shadow_offset_x", 1)
+        label.add_theme_constant_override("shadow_offset_y", 2)
+    return button
+
+
+func _add_approved_title_art() -> void:
+    const BACKGROUND := "res://assets/branding/title_background.png"
+    const PLAY := "res://assets/ui/approved_play.png"
+    const UPGRADES := "res://assets/ui/approved_upgrades.png"
+    const COLLECTION := "res://assets/ui/approved_collection.png"
+    const SETTINGS := "res://assets/ui/approved_settings.png"
+
+    # Only enable artwork mode when all exact artwork and button crops exist.
+    # The labeled fallback remains usable until the image assets are installed.
+    for source in [BACKGROUND, PLAY, UPGRADES, COLLECTION, SETTINGS]:
+        if not ResourceLoader.exists(source):
+            return
+
+    art_title_enabled = true
+    for child in menu.get_children():
+        if child is CanvasItem:
+            (child as CanvasItem).visible = false
+
+    var poster := TextureRect.new()
+    poster.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    poster.texture = load(BACKGROUND) as Texture2D
+    poster.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+    poster.stretch_mode = TextureRect.STRETCH_SCALE
+    poster.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    menu.add_child(poster)
+
+    var hit_layer := Control.new()
+    hit_layer.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+    hit_layer.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    menu.add_child(hit_layer)
+
+    # Exact positions measured in the original 941 x 1672 artwork.
+    play_button = _approved_button(hit_layer, PLAY, Rect2(180, 1175, 574, 163))
+    play_button.pressed.connect(_start_level)
+    var upgrade_button := _approved_button(hit_layer, UPGRADES, Rect2(50, 1350, 270, 116))
+    upgrade_button.pressed.connect(func() -> void: _open_menu_panel("upgrades"))
+    var collection_button := _approved_button(hit_layer, COLLECTION, Rect2(340, 1350, 271, 116))
+    collection_button.pressed.connect(func() -> void: _open_menu_panel("collection"))
+    var settings_button := _approved_button(hit_layer, SETTINGS, Rect2(624, 1350, 276, 116))
+    settings_button.pressed.connect(func() -> void: _open_menu_panel("settings"))
+
+
+func _approved_button(parent: Control, path: String, crop_rect: Rect2) -> TextureButton:
+    var button := TextureButton.new()
+    button.anchor_left = crop_rect.position.x / 941.0
+    button.anchor_right = (crop_rect.position.x + crop_rect.size.x) / 941.0
+    button.anchor_top = crop_rect.position.y / 1672.0
+    button.anchor_bottom = (crop_rect.position.y + crop_rect.size.y) / 1672.0
+    button.ignore_texture_size = true
+    button.stretch_mode = TextureButton.STRETCH_SCALE
+    button.texture_normal = load(path) as Texture2D
+    button.mouse_filter = Control.MOUSE_FILTER_STOP
+    button.focus_mode = Control.FOCUS_ALL
     parent.add_child(button)
     return button
 
