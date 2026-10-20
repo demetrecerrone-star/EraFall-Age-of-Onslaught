@@ -49,6 +49,10 @@ var logo_fallback: Label
 var title_background: TextureRect
 var panel_kind := ""
 var art_title_enabled := false
+var drag_touch_id := -1
+var mouse_dragging := false
+var left_held := false
+var right_held := false
 
 
 func _ready() -> void:
@@ -61,10 +65,13 @@ func _ready() -> void:
 func _process(delta: float) -> void:
     if screen != Screen.PLAYING or finished:
         return
-    if Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A):
-        player_x -= 7.0 * delta
-    if Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D):
-        player_x += 7.0 * delta
+    # Keyboard and visible mobile arrows are independent of swipe steering.
+    var move_axis := 0.0
+    if Input.is_key_pressed(KEY_LEFT) or Input.is_key_pressed(KEY_A) or left_held:
+        move_axis -= 1.0
+    if Input.is_key_pressed(KEY_RIGHT) or Input.is_key_pressed(KEY_D) or right_held:
+        move_axis += 1.0
+    player_x += move_axis * 9.5 * delta
     player_x = clampf(player_x, -TRACK_EDGE, TRACK_EDGE)
     _place_allies()
     time_in_stage += delta
@@ -90,15 +97,31 @@ func _process(delta: float) -> void:
         _finish_level(false)
 
 
-func _unhandled_input(event: InputEvent) -> void:
-    if screen != Screen.PLAYING:
+func _input(event: InputEvent) -> void:
+    # _unhandled_input was unreliable when overlay controls consumed touch events.
+    # _input receives touch BEFORE HUD/UI mouse filters can swallow it.
+    if screen != Screen.PLAYING or finished:
         return
+    if event is InputEventScreenTouch:
+        if event.pressed and drag_touch_id == -1:
+            drag_touch_id = event.index
+        elif not event.pressed and event.index == drag_touch_id:
+            drag_touch_id = -1
+    elif event is InputEventScreenDrag and event.index == drag_touch_id:
+        _steer_by_drag(event.relative.x)
+    elif event is InputEventMouseButton and not DisplayServer.is_touchscreen_available():
+        if event.button_index == MOUSE_BUTTON_LEFT:
+            mouse_dragging = event.pressed
+    elif event is InputEventMouseMotion and mouse_dragging:
+        _steer_by_drag(event.relative.x)
+
+
+func _steer_by_drag(pixel_delta: float) -> void:
+    # Relative swipes steer the leader and whole formation without teleporting.
     var width := maxf(1.0, get_viewport().get_visible_rect().size.x)
-    if event is InputEventScreenDrag:
-        player_x = clampf(player_x + event.relative.x * 11.0 / width, -TRACK_EDGE, TRACK_EDGE)
-    elif event is InputEventMouseMotion and not DisplayServer.is_touchscreen_available():
-        if Input.is_mouse_button_pressed(MOUSE_BUTTON_LEFT):
-            player_x = clampf(player_x + event.relative.x * 11.0 / width, -TRACK_EDGE, TRACK_EDGE)
+    var world_per_pixel := (TRACK_EDGE * 2.0) / width
+    player_x = clampf(player_x + pixel_delta * world_per_pixel * 1.2, -TRACK_EDGE, TRACK_EDGE)
+    _place_allies()
 
 
 func _create_world() -> void:
@@ -239,6 +262,10 @@ func _start_level() -> void:
     spawn_clock = 4.0
     shoot_clock = 0.4
     player_x = 0
+    drag_touch_id = -1
+    mouse_dragging = false
+    left_held = false
+    right_held = false
     allies = 1
     health = 4
     spawned_miniboss = false
@@ -259,7 +286,11 @@ func _start_level() -> void:
 func _add_allies(count: int) -> void:
     var goal := mini(18, ally_models.size() + count)
     for i in range(ally_models.size(), goal):
-        var unit := _fighter(Color("#e7c88b"))
+        var color := Color("#65dcb8") if i == 0 else Color("#e7c88b")
+        var unit := _fighter(color)
+        if i == 0:
+            # Distinctive highlight at the feet identifies the player's hunter.
+            _sphere(unit, Color("#6fe3bf"), Vector3(0, 0.06, 0), Vector3(1.65, 0.12, 1.65))
         ally_models.append(unit)
     allies = ally_models.size()
     _place_allies()
@@ -270,7 +301,8 @@ func _place_allies() -> void:
         var row := 0 if i == 0 else 1 + int((i - 1) / 5)
         var column := 0 if i == 0 else (i - 1) % 5 - 2
         var x_offset := float(column) * 0.77
-        ally_models[i].position = Vector3(clampf(player_x + x_offset, -TRACK_EDGE, TRACK_EDGE), 0, HERO_Z + float(row) * 1.04)
+        var running_bob := absf(sin(time_in_stage * 10.0 + float(i) * 0.7)) * 0.09
+        ally_models[i].position = Vector3(clampf(player_x + x_offset, -TRACK_EDGE, TRACK_EDGE), running_bob, HERO_Z + float(row) * 1.04)
 
 
 func _spawn_gate(amount: int, x: float, z: float) -> void:
@@ -517,21 +549,58 @@ func _create_ui() -> void:
     hud.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
     hud.mouse_filter = Control.MOUSE_FILTER_IGNORE
     ui.add_child(hud)
+    var hud_back := ColorRect.new()
+    hud_back.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
+    hud_back.offset_bottom = 126
+    hud_back.color = Color(0.03, 0.07, 0.075, 0.76)
+    hud_back.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    hud.add_child(hud_back)
     hud_label = _label(hud, "", 22, Color.WHITE)
+    hud_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
     hud_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
     hud_label.offset_top = 26
     hud_label.offset_bottom = 112
-    hint_label = _label(hud, "DRAG LEFT / RIGHT TO COLLECT ALLIES", 27, Color("#c9ffe6"))
+    hint_label = _label(hud, "SWIPE TO STEER YOUR HUNTER", 25, Color("#c9ffe6"))
     hint_label.set_anchors_and_offsets_preset(Control.PRESET_TOP_WIDE)
-    hint_label.offset_top = 148
-    hint_label.offset_bottom = 214
+    hint_label.offset_top = 180
+    hint_label.offset_bottom = 240
+    hint_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+
+    var steer_caption := _label(hud, "DRAG ANYWHERE TO MOVE    •    HOLD ARROWS AS BACKUP", 17, Color("#ffffff"))
+    steer_caption.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+    steer_caption.offset_top = -186
+    steer_caption.offset_bottom = -128
+    steer_caption.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    steer_caption.add_theme_color_override("font_shadow_color", Color.BLACK)
+
+    var steering_bar := HBoxContainer.new()
+    steering_bar.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_WIDE)
+    steering_bar.offset_left = 16
+    steering_bar.offset_right = -16
+    steering_bar.offset_top = -128
+    steering_bar.offset_bottom = -22
+    steering_bar.add_theme_constant_override("separation", 8)
+    steering_bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    hud.add_child(steering_bar)
+    var left_button := _steering_button(steering_bar, "<  LEFT")
+    var steering_gap := Control.new()
+    steering_gap.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    steering_gap.size_flags_stretch_ratio = 0.7
+    steering_gap.mouse_filter = Control.MOUSE_FILTER_IGNORE
+    steering_bar.add_child(steering_gap)
+    var right_button := _steering_button(steering_bar, "RIGHT  >")
+    left_button.button_down.connect(func() -> void: left_held = true)
+    left_button.button_up.connect(func() -> void: left_held = false)
+    right_button.button_down.connect(func() -> void: right_held = true)
+    right_button.button_up.connect(func() -> void: right_held = false)
+
     var exit := Button.new()
     exit.text = "EXIT RUN"
-    exit.set_anchors_and_offsets_preset(Control.PRESET_BOTTOM_RIGHT)
-    exit.offset_left = -155
-    exit.offset_right = -24
-    exit.offset_top = -88
-    exit.offset_bottom = -34
+    exit.set_anchors_and_offsets_preset(Control.PRESET_TOP_RIGHT)
+    exit.offset_left = -142
+    exit.offset_right = -12
+    exit.offset_top = 132
+    exit.offset_bottom = 180
     exit.pressed.connect(_enter_title)
     hud.add_child(exit)
 
@@ -602,6 +671,26 @@ func _label(parent: Node, value: String, size: int, color: Color) -> Label:
     label.add_theme_color_override("font_color", color)
     parent.add_child(label)
     return label
+
+
+func _steering_button(parent: Control, caption: String) -> Button:
+    var button := Button.new()
+    button.text = caption
+    button.custom_minimum_size = Vector2(168, 98)
+    button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+    button.add_theme_font_size_override("font_size", 26)
+    button.focus_mode = Control.FOCUS_NONE
+    var background := StyleBoxFlat.new()
+    background.bg_color = Color(0.055, 0.17, 0.16, 0.80)
+    background.border_color = Color("#b4ebcd")
+    background.set_border_width_all(2)
+    background.set_corner_radius_all(16)
+    button.add_theme_stylebox_override("normal", background)
+    var pressed := background.duplicate() as StyleBoxFlat
+    pressed.bg_color = Color(0.14, 0.42, 0.33, 0.95)
+    button.add_theme_stylebox_override("pressed", pressed)
+    parent.add_child(button)
+    return button
 
 
 func _image_button(parent: Node, texture_path: String) -> TextureButton:
@@ -692,9 +781,9 @@ func _approved_button(parent: Control, path: String, crop_rect: Rect2) -> Textur
 func _update_hud() -> void:
     hud_label.text = "%s  |  %s\nTRIBE: %d   LIFE: %d   GOLD: %d" % [Catalog.get_era(era_index)["name"], Catalog.get_era(era_index)["weapon"], allies, health, gold]
     if time_in_stage < 7.0 and hints_enabled:
-        hint_label.text = "DRAG LEFT / RIGHT TO COLLECT ALLIES"
+        hint_label.text = "SWIPE LEFT / RIGHT TO CATCH THE +1 GATE"
     elif time_in_stage >= 7.0 and time_in_stage < 13.0 and hints_enabled:
-        hint_label.text = "YOUR TRIBE ATTACKS AUTOMATICALLY"
+        hint_label.text = "YOU STEER. YOUR HUNTERS THROW SPEARS."
     elif time_in_stage > 16.0:
         hint_label.text = "MINIBOSS > BOSS > NEXT ERA"
     if not hints_enabled:
