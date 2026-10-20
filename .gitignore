@@ -1,0 +1,11 @@
+.godot/
+.import/
+build/
+*.apk
+*.aab
+*.jks
+*.keystore
+*.p12
+android/
+local.cfg
+.DS_Store
