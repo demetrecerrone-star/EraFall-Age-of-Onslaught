@@ -61,6 +61,12 @@ jobs:
           godot --headless --path . --quit-after 3 2>&1 | tee /tmp/erafall-run.log
           if grep -Ei 'SCRIPT ERROR|Parse Error|Failed to load script' /tmp/erafall-run.log; then exit 1; fi
 
+      - name: Verify mobile swipe and hold-to-steer gameplay
+        run: |
+          set -euo pipefail
+          godot --headless --path . --script res://tests/controls_smoke.gd 2>&1 | tee /tmp/erafall-controls.log
+          grep -q 'ERAFALL CONTROL SMOKE' /tmp/erafall-controls.log
+
       - name: Check signing secrets are populated
         env:
           ERAFALL_KEYSTORE_BASE64: ${{ secrets.ERAFALL_KEYSTORE_BASE64 }}
