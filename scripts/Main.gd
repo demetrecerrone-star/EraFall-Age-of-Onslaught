@@ -32,6 +32,9 @@ var ally_models: Array[Node3D] = []
 var arena: Node3D
 var formations: Node3D
 var track: MeshInstance3D
+var terrain: MeshInstance3D
+var sky_env: Environment
+var scrolling_props: Array[Node3D] = []
 var camera: Camera3D
 var menu: Control
 var hud: Control
@@ -89,6 +92,7 @@ func _process(delta: float) -> void:
     if not spawned_boss and time_in_stage >= 43.0:
         spawned_boss = true
         _spawn_enemy("boss")
+    _move_scenery(delta)
     _move_gates(delta)
     _move_enemies(delta)
     _move_projectiles(delta)
@@ -128,27 +132,30 @@ func _create_world() -> void:
     var environment_node := WorldEnvironment.new()
     var env := Environment.new()
     env.background_mode = Environment.BG_COLOR
-    env.background_color = Color("#102431")
+    env.background_color = Color("#91b9ab")
     env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
-    env.ambient_light_color = Color("#bfd4d8")
-    env.ambient_light_energy = 0.65
+    env.ambient_light_color = Color("#ffe2b2")
+    env.ambient_light_energy = 0.84
+    sky_env = env
     environment_node.environment = env
     add_child(environment_node)
 
     var sun := DirectionalLight3D.new()
-    sun.rotation_degrees = Vector3(-52, -38, 0)
-    sun.light_energy = 1.25
+    sun.rotation_degrees = Vector3(-49, -32, 0)
+    sun.light_color = Color("#ffe6b8")
+    sun.light_energy = 1.5
     add_child(sun)
 
     camera = Camera3D.new()
-    camera.position = Vector3(0.0, 22.0, 28.0)
-    camera.fov = 51.0
+    # Bring the hunter into focus; the first prototype viewed the action too far away.
+    camera.position = Vector3(0.0, 17.0, 24.0)
+    camera.fov = 49.0
     camera.far = 110.0
     camera.current = true
     # Node3D.look_at needs an active tree/global transform. Calling it
     # before add_child leaves the camera facing the horizon on Android.
     add_child(camera)
-    camera.look_at(Vector3(0.0, 0.0, -8.0), Vector3.UP)
+    camera.look_at(Vector3(0.0, 0.0, -6.0), Vector3.UP)
 
     arena = Node3D.new()
     arena.name = "LevelObjects"
@@ -157,25 +164,52 @@ func _create_world() -> void:
     formations.name = "Tribe"
     add_child(formations)
 
-    track = _box(arena, Vector3(11.0, 0.32, 95.0), Color("#70614b"), Vector3(0, -0.16, -13.0))
-    _box(arena, Vector3(0.27, 0.24, 95), Color("#c2ab7a"), Vector3(-5.55, 0, -13))
-    _box(arena, Vector3(0.27, 0.24, 95), Color("#c2ab7a"), Vector3(5.55, 0, -13))
+    terrain = _box(arena, Vector3(85.0, 0.55, 130.0), Color("#537552"), Vector3(0, -0.48, -13.0))
+    track = _box(arena, Vector3(11.0, 0.32, 130.0), Color("#806d50"), Vector3(0, -0.16, -13.0))
+    _box(arena, Vector3(0.33, 0.27, 130), Color("#d3b587"), Vector3(-5.55, 0, -13))
+    _box(arena, Vector3(0.33, 0.27, 130), Color("#d3b587"), Vector3(5.55, 0, -13))
+    # Passing terrain markers and roadside objects make it read as a forward run.
+    # Props are reused instead of continuously allocating new mesh instances.
     for i in range(20):
-        var z := -54.0 + float(i) * 6.7
+        var z := -67.0 + float(i) * 5.5
         for side in [-1, 1]:
-            var x := float(side) * (7.7 + float(i % 3) * 1.5)
-            _box(arena, Vector3(1.3, 1.7, 1.3), Color("#486651"), Vector3(x, 0.65, z))
-            _sphere(arena, Color("#668465"), Vector3(x, 2.2, z), Vector3(1.15, 1.6, 1.15))
+            var sign := float(side)
+            var prop := Node3D.new()
+            arena.add_child(prop)
+            prop.position = Vector3(sign * (7.5 + float(i % 3) * 1.6), 0, z)
+            _box(prop, Vector3(0.38, 2.6, 0.42), Color("#6c5541"), Vector3(0, 1.22, 0))
+            _sphere(prop, Color("#5b8258"), Vector3(0, 2.66, 0), Vector3(2.3, 2.15, 1.95))
+            _sphere(prop, Color("#83a66e"), Vector3(sign * 0.48, 3.18, -0.14), Vector3(1.56, 1.4, 1.45))
+            _sphere(prop, Color("#a0a28c"), Vector3(sign * 2.0, 0.27, 1.1), Vector3(0.9, 0.53, 0.78))
+            scrolling_props.append(prop)
+        for side in [-1, 1]:
+            var marker := Node3D.new()
+            arena.add_child(marker)
+            marker.position = Vector3(float(side) * 3.7, 0.055, z)
+            _box(marker, Vector3(0.13, 0.06, 1.65), Color("#ccb287"), Vector3.ZERO)
+            scrolling_props.append(marker)
     _paint_era()
 
 
 func _paint_era() -> void:
-    var c: Color = Color(Catalog.get_era(era_index)["accent"])
+    # Distinct palettes are only a first terrain pass; bespoke era assets follow.
+    var roads := ["#887257", "#9e7c59", "#727674", "#777267", "#6e6660", "#666d78", "#4b5367"]
+    var grounds := ["#537552", "#887856", "#617561", "#58745b", "#6b6658", "#4d6761", "#414765"]
+    var skies := ["#91b9ab", "#b3b49e", "#97a7aa", "#89aba2", "#a3a3a6", "#7fa7c0", "#777dba"]
     if track != null:
-        var material := StandardMaterial3D.new()
-        material.albedo_color = c.darkened(0.54)
-        material.roughness = 1.0
-        track.material_override = material
+        track.material_override = _material(Color(roads[era_index]))
+    if terrain != null:
+        terrain.material_override = _material(Color(grounds[era_index]))
+    if sky_env != null:
+        sky_env.background_color = Color(skies[era_index])
+
+
+func _move_scenery(delta: float) -> void:
+    # The camera follows a running hunter while the track flows toward them.
+    for prop in scrolling_props:
+        prop.position.z += 5.3 * delta
+        if prop.position.z > HERO_Z + 17.0:
+            prop.position.z -= 110.0
 
 
 func _box(parent: Node3D, dimensions: Vector3, color: Color, at: Vector3) -> MeshInstance3D:
@@ -212,16 +246,41 @@ func _material(color: Color) -> StandardMaterial3D:
 func _fighter(color: Color, is_boss: bool = false) -> Node3D:
     var unit := Node3D.new()
     arena.add_child(unit)
-    _box(unit, Vector3(0.55, 0.9, 0.45), color, Vector3(0, 1.13, 0))
-    _sphere(unit, Color("#e9bd96"), Vector3(0, 1.93, 0), Vector3(0.63, 0.68, 0.62))
-    _box(unit, Vector3(0.2, 0.85, 0.23), Color("#34363a"), Vector3(-0.16, 0.44, 0))
-    _box(unit, Vector3(0.2, 0.85, 0.23), Color("#34363a"), Vector3(0.16, 0.44, 0))
-    _box(unit, Vector3(0.19, 0.7, 0.2), color.darkened(0.25), Vector3(-0.41, 1.2, 0))
-    _box(unit, Vector3(0.19, 0.7, 0.2), color.darkened(0.25), Vector3(0.41, 1.2, 0))
+    var skin := Color("#e6ba91")
+    _sphere(unit, color, Vector3(0, 1.25, 0), Vector3(0.83, 1.03, 0.65))
+    _sphere(unit, skin, Vector3(0, 1.96, 0), Vector3(0.68, 0.76, 0.67))
+    _sphere(unit, Color("#554337"), Vector3(0, 2.22, 0.12), Vector3(0.73, 0.28, 0.71))
+    _box(unit, Vector3(0.85, 0.15, 0.69), Color("#5b422d"), Vector3(0, 0.92, 0))
+    for side in [-1, 1]:
+        var sign := float(side)
+        var leg := Node3D.new()
+        leg.name = "LeftLeg" if side == -1 else "RightLeg"
+        leg.position = Vector3(sign * 0.23, 0.94, 0)
+        unit.add_child(leg)
+        _sphere(leg, Color("#4d4b40"), Vector3(0, -0.38, 0), Vector3(0.30, 0.77, 0.34))
+        _box(leg, Vector3(0.31, 0.22, 0.50), Color("#383a38"), Vector3(0, -0.82, -0.08))
+        var arm := Node3D.new()
+        arm.name = "LeftArm" if side == -1 else "RightArm"
+        arm.position = Vector3(sign * 0.51, 1.59, 0)
+        unit.add_child(arm)
+        _sphere(arm, color.darkened(0.16), Vector3(0, -0.32, 0), Vector3(0.31, 0.70, 0.30))
+        _sphere(arm, skin, Vector3(0, -0.66, -0.02), Vector3(0.26, 0.27, 0.27))
     if is_boss:
-        unit.scale = Vector3(1.75, 1.75, 1.75)
-        _box(unit, Vector3(1.1, 0.24, 0.28), Color("#dbb66e"), Vector3(0, 2.35, 0))
+        unit.scale = Vector3(1.85, 1.85, 1.85)
+        _box(unit, Vector3(1.03, 0.21, 0.30), Color("#f0cc74"), Vector3(0, 2.40, 0))
+        _sphere(unit, Color("#c44936"), Vector3(0, 2.56, 0), Vector3(0.52, 0.35, 0.45))
     return unit
+
+
+func _animate_running(unit: Node3D, phase: float) -> void:
+    if unit.has_node("LeftLeg"):
+        (unit.get_node("LeftLeg") as Node3D).rotation.x = sin(phase) * 0.44
+    if unit.has_node("RightLeg"):
+        (unit.get_node("RightLeg") as Node3D).rotation.x = -sin(phase) * 0.44
+    if unit.has_node("LeftArm"):
+        (unit.get_node("LeftArm") as Node3D).rotation.x = -sin(phase) * 0.27
+    if unit.has_node("RightArm"):
+        (unit.get_node("RightArm") as Node3D).rotation.x = sin(phase) * 0.27
 
 
 func _beast(color: Color, is_boss: bool = false) -> Node3D:
@@ -234,6 +293,9 @@ func _beast(color: Color, is_boss: bool = false) -> Node3D:
             _box(beast, Vector3(0.27, 0.74, 0.29), color.darkened(0.25), Vector3(x, 0.38, z))
     _sphere(beast, Color("#f8cc61"), Vector3(-0.26, 1.12, -1.15), Vector3(0.15, 0.14, 0.15))
     _sphere(beast, Color("#f8cc61"), Vector3(0.26, 1.12, -1.15), Vector3(0.15, 0.14, 0.15))
+    for sign in [-1.0, 1.0]:
+        _sphere(beast, color.darkened(0.22), Vector3(sign * 0.42, 1.53, -0.76), Vector3(0.32, 0.64, 0.30))
+    _sphere(beast, color.darkened(0.15), Vector3(0, 1.18, 0.95), Vector3(0.55, 0.44, 1.05))
     if is_boss:
         beast.scale = Vector3(1.5, 1.5, 1.5)
     return beast
@@ -303,6 +365,7 @@ func _place_allies() -> void:
         var x_offset := float(column) * 0.77
         var running_bob := absf(sin(time_in_stage * 10.0 + float(i) * 0.7)) * 0.09
         ally_models[i].position = Vector3(clampf(player_x + x_offset, -TRACK_EDGE, TRACK_EDGE), running_bob, HERO_Z + float(row) * 1.04)
+        _animate_running(ally_models[i], time_in_stage * 10.0 + float(i) * 0.7)
 
 
 func _spawn_gate(amount: int, x: float, z: float) -> void:
@@ -313,6 +376,14 @@ func _spawn_gate(amount: int, x: float, z: float) -> void:
     _box(gate, Vector3(0.26, 3.0, 0.28), color, Vector3(-1.13, 1.5, 0))
     _box(gate, Vector3(0.26, 3.0, 0.28), color, Vector3(1.13, 1.5, 0))
     _box(gate, Vector3(2.52, 0.43, 0.3), color, Vector3(0, 3.08, 0))
+    _box(gate, Vector3(2.02, 1.34, 0.16), Color("#245847"), Vector3(0, 2.16, 0))
+    var gate_number := Label3D.new()
+    gate_number.text = "+%d" % amount
+    gate_number.font_size = 108
+    gate_number.pixel_size = 0.009
+    gate_number.modulate = Color("#ffffff")
+    gate_number.position = Vector3(0, 2.14, 0.17)
+    gate.add_child(gate_number)
     gates.append({"node": gate, "amount": amount, "speed": 3.85})
 
 
@@ -363,6 +434,7 @@ func _move_enemies(delta: float) -> void:
         var foe := enemies[i]
         var node := foe["node"] as Node3D
         node.position.z += float(foe["speed"]) * delta
+        _animate_running(node, time_in_stage * 7.0 + float(i))
         if node.position.z > HERO_Z + 0.2:
             health -= 2 if str(foe["kind"]) == "boss" else 1
             if allies > 1:
@@ -381,7 +453,12 @@ func _fire_volley() -> void:
         arena.add_child(shot)
         shot.position = Vector3(ally.position.x, 1.65, ally.position.z - 0.3)
         var color := Color(Catalog.get_era(era_index)["accent"]).lightened(0.1)
-        _sphere(shot, color, Vector3.ZERO, Vector3(0.23, 0.23, 0.61))
+        if era_index == 0:
+            # Stone Age volleys visibly throw flint-tipped spears, not glowing balls.
+            _box(shot, Vector3(0.11, 0.11, 1.25), Color("#bc9562"), Vector3.ZERO)
+            _sphere(shot, Color("#cdd0bd"), Vector3(0, 0, -0.78), Vector3(0.24, 0.21, 0.40))
+        else:
+            _sphere(shot, color, Vector3.ZERO, Vector3(0.24, 0.24, 0.65))
         projectiles.append({"node": shot, "damage": 1 + int(attack_upgrade / 2)})
 
 
