@@ -162,7 +162,7 @@ jobs:
       - name: Publish signed APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: EraFall-Android-0.1-signed
+          name: EraFall-Android-0.2-signed
           path: build/EraFall-release.apk
           if-no-files-found: error
           retention-days: 30
