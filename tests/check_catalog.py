@@ -15,3 +15,25 @@ assert 'com.dabsky.erafall' in (root/'export_presets.cfg').read_text()
 for secret in ('ERAFALL_KEYSTORE_BASE64','ERAFALL_STORE_PASSWORD', 'ERAFALL_KEY_ALIAS','ERAFALL_KEY_PASSWORD'):
     assert secret in (root/'.github/workflows/android.yml').read_text()
 print('Era catalog, unique button images, package ID and secret names verified')
+
+# Guard against the two visible regressions found on the first real phone build:
+# missing SVG captions and a 3D camera that points at the horizon.
+main = (root/'scripts/Main.gd').read_text()
+assert 'caption = "PLAY"' in main
+for title in ('UPGRADES', 'COLLECTION', 'SETTINGS'):
+    assert f'caption = "{title}"' in main
+assert 'label.mouse_filter = Control.MOUSE_FILTER_IGNORE' in main
+assert re.search(
+    r'add_child\(camera\)\s+camera\.look_at\(',
+    main
+), 'Camera must be in scene tree before look_at'
+assert 'func _add_approved_title_art()' in main
+for path in (
+    'res://assets/branding/title_background.png',
+    'res://assets/ui/approved_play.png',
+    'res://assets/ui/approved_upgrades.png',
+    'res://assets/ui/approved_collection.png',
+    'res://assets/ui/approved_settings.png',
+):
+    assert path in main, f'Approved art hook missing: {path}'
+print('Mobile camera orientation, menu label fallback, and approved artwork hooks verified')
