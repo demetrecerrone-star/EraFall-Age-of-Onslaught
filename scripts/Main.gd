@@ -126,6 +126,8 @@ func _steer_by_drag(pixel_delta: float) -> void:
     var world_per_pixel := (TRACK_EDGE * 2.0) / width
     player_x = clampf(player_x + pixel_delta * world_per_pixel * 1.2, -TRACK_EDGE, TRACK_EDGE)
     _place_allies()
+    if OS.has_feature("android") and absf(pixel_delta) >= 1.0:
+        print("ERAFALL_CI_STEERING_RECEIVED")
 
 
 func _create_world() -> void:
@@ -343,6 +345,8 @@ func _start_level() -> void:
     _spawn_gate(3, -0.1, -70.0)
     _spawn_gate(3, 2.5, -96.0)
     _update_hud()
+    if OS.has_feature("android"):
+        print("ERAFALL_CI_GAMEPLAY_READY")
 
 
 func _add_allies(count: int) -> void:
@@ -533,6 +537,8 @@ func _enter_title() -> void:
     hud.visible = false
     menu.visible = true
     _refresh_menu()
+    if OS.has_feature("android"):
+        print("ERAFALL_CI_TITLE_READY")
 
 
 func _refresh_menu() -> void:

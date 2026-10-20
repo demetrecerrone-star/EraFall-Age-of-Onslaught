@@ -37,3 +37,14 @@ for path in (
 ):
     assert path in main, f'Approved art hook missing: {path}'
 print('Mobile camera orientation, menu label fallback, and approved artwork hooks verified')
+
+# Keep Android release readiness markers and CI plumbing in sync.
+project = (root / 'project.godot').read_text()
+smoke = (root / '.github/scripts/smoke-test.sh').read_text()
+workflow = (root / '.github/workflows/android.yml').read_text()
+assert 'run/flush_stdout_on_print=true' in project
+for marker in ('ERAFALL_CI_TITLE_READY', 'ERAFALL_CI_GAMEPLAY_READY', 'ERAFALL_CI_STEERING_RECEIVED'):
+    assert marker in main and marker in smoke, f'Readiness marker missing: {marker}'
+assert 'Enable KVM hardware acceleration' in workflow
+assert 'HEIGHT * 93 / 100' in smoke, 'Android fallback Play button coordinates regressed'
+print('Android release-readiness, emulator KVM and menu tap checks verified')
