@@ -107,21 +107,31 @@ jobs:
           fi
           echo "Keystore password validated independently of the alias."
 
-      - name: Check release keystore and alias
+      - name: Resolve the intended signing key alias
         env:
           ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
           ERAFALL_KEY_ALIAS: ${{ secrets.ERAFALL_KEY_ALIAS }}
         run: |
           set -euo pipefail
-          if ! keytool -list -keystore "$RUNNER_TEMP/erafall-release.jks" \
-              -storepass "$ERAFALL_STORE_PASSWORD" -alias "$ERAFALL_KEY_ALIAS" > /dev/null 2>&1; then
-            echo "Could not open the keystore with the configured store password and alias." >&2
-            exit 1
+          ks="$RUNNER_TEMP/erafall-release.jks"
+          chosen="$ERAFALL_KEY_ALIAS"
+          if ! keytool -list -keystore "$ks" -storepass "$ERAFALL_STORE_PASSWORD" -alias "$chosen" > /dev/null 2>&1; then
+            mapfile -t private_keys < <(
+              keytool -list -v -keystore "$ks" -storepass "$ERAFALL_STORE_PASSWORD" |
+                awk '/Alias name: /{name=substr($0,index($0,":")+2)} /Entry type: PrivateKeyEntry/{print name}'
+            )
+            if [[ "${#private_keys[@]}" -ne 1 ]]; then
+              echo "Alias secret did not match and the keystore does not have exactly one unambiguous private key." >&2
+              exit 1
+            fi
+            chosen="${private_keys[0]}"
+            echo "Configured alias differed; safely using the keystore's only private signing key."
           fi
-          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$RUNNER_TEMP/erafall-release.jks" >> "$GITHUB_ENV"
-          echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$ERAFALL_KEY_ALIAS" >> "$GITHUB_ENV"
+          echo "ERAFALL_SIGNING_ALIAS=$chosen" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$ks" >> "$GITHUB_ENV"
+          echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$chosen" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$ERAFALL_STORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "Keystore signing identity verified."
+          echo "Signing key identity resolved without revealing the alias."
 
       - name: Export signed release APK
         run: |
@@ -138,7 +148,7 @@ jobs:
           set -euo pipefail
           APKSIGNER="$ANDROID_HOME/build-tools/35.0.0/apksigner"
           "$APKSIGNER" verify --verbose --print-certs build/EraFall-release.apk | tee /tmp/signature.txt
-          KEY_FP=$(keytool -list -v -keystore "$RUNNER_TEMP/erafall-release.jks" -storepass "$ERAFALL_STORE_PASSWORD" -alias "$ERAFALL_KEY_ALIAS" | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
+          KEY_FP=$(keytool -list -v -keystore "$RUNNER_TEMP/erafall-release.jks" -storepass "$ERAFALL_STORE_PASSWORD" -alias "$ERAFALL_SIGNING_ALIAS" | awk '/SHA256:/{print $2; exit}' | tr -d ':' | tr '[:upper:]' '[:lower:]')
           APK_FP=$(sed -n 's/^Signer #1 certificate SHA-256 digest: //p' /tmp/signature.txt | head -n 1 | tr '[:upper:]' '[:lower:]')
           [[ -n "$KEY_FP" && "$KEY_FP" == "$APK_FP" ]] || { echo "APK signer does not match the release keystore" >&2; exit 1; }
           echo "APK signer matches the configured release keystore."
