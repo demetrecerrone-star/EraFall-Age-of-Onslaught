@@ -61,7 +61,7 @@ jobs:
           godot --headless --path . --quit-after 3 2>&1 | tee /tmp/erafall-run.log
           if grep -Ei 'SCRIPT ERROR|Parse Error|Failed to load script' /tmp/erafall-run.log; then exit 1; fi
 
-      - name: Validate signing secrets and keystore alias
+      - name: Check signing secrets are populated
         env:
           ERAFALL_KEYSTORE_BASE64: ${{ secrets.ERAFALL_KEYSTORE_BASE64 }}
           ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
@@ -70,20 +70,47 @@ jobs:
         run: |
           set -euo pipefail
           for name in ERAFALL_KEYSTORE_BASE64 ERAFALL_STORE_PASSWORD ERAFALL_KEY_ALIAS ERAFALL_KEY_PASSWORD; do
-            if [[ -z "${!name:-}" ]]; then echo "Missing GitHub Actions secret: $name" >&2; exit 1; fi
+            if [[ -z "${!name:-}" ]]; then echo "Required GitHub secret is unset: $name" >&2; exit 1; fi
           done
+          echo "All four release-signing secrets are populated."
+
+      - name: Check Godot signing passwords match
+        env:
+          ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
+          ERAFALL_KEY_PASSWORD: ${{ secrets.ERAFALL_KEY_PASSWORD }}
+        run: |
+          set -euo pipefail
           if [[ "$ERAFALL_STORE_PASSWORD" != "$ERAFALL_KEY_PASSWORD" ]]; then
-            echo "Godot's built-in Android export requires the key and keystore passwords to match." >&2
+            echo "Store and key passwords differ. Godot built-in Android exporter requires them to match." >&2
             exit 1
           fi
-          echo -n "$ERAFALL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/erafall-release.jks"
+          echo "Store/key password compatibility verified."
+
+      - name: Decode signing keystore
+        env:
+          ERAFALL_KEYSTORE_BASE64: ${{ secrets.ERAFALL_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ERAFALL_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/erafall-release.jks"
+          test -s "$RUNNER_TEMP/erafall-release.jks"
           chmod 600 "$RUNNER_TEMP/erafall-release.jks"
-          keytool -list -keystore "$RUNNER_TEMP/erafall-release.jks" \
-            -storepass "$ERAFALL_STORE_PASSWORD" -alias "$ERAFALL_KEY_ALIAS" > /dev/null
+          echo "Keystore decoded (contents not shown)."
+
+      - name: Check release keystore and alias
+        env:
+          ERAFALL_STORE_PASSWORD: ${{ secrets.ERAFALL_STORE_PASSWORD }}
+          ERAFALL_KEY_ALIAS: ${{ secrets.ERAFALL_KEY_ALIAS }}
+        run: |
+          set -euo pipefail
+          if ! keytool -list -keystore "$RUNNER_TEMP/erafall-release.jks" \
+              -storepass "$ERAFALL_STORE_PASSWORD" -alias "$ERAFALL_KEY_ALIAS" > /dev/null 2>&1; then
+            echo "Could not open the keystore with the configured store password and alias." >&2
+            exit 1
+          fi
           echo "GODOT_ANDROID_KEYSTORE_RELEASE_PATH=$RUNNER_TEMP/erafall-release.jks" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_KEYSTORE_RELEASE_USER=$ERAFALL_KEY_ALIAS" >> "$GITHUB_ENV"
           echo "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD=$ERAFALL_STORE_PASSWORD" >> "$GITHUB_ENV"
-          echo "Signing keystore and alias verified (secret values not printed)."
+          echo "Keystore signing identity verified."
 
       - name: Export signed release APK
         run: |
