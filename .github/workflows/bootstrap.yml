@@ -3,7 +3,7 @@ name: Install EraFall source bundle
 on:
   push:
     branches: [main]
-    paths: ['bootstrap/erafall-project.zip.b64']
+    paths: ['bootstrap/erafall-project.tar.xz.b64']
   workflow_dispatch:
 
 permissions:
@@ -17,10 +17,10 @@ jobs:
       - name: Expand and commit Godot project
         run: |
           set -euo pipefail
-          base64 -d bootstrap/erafall-project.zip.b64 > /tmp/erafall-project.zip
-          unzip -oq /tmp/erafall-project.zip -d .
+          base64 -d bootstrap/erafall-project.tar.xz.b64 > /tmp/erafall-project.tar.xz
+          tar -xJf /tmp/erafall-project.tar.xz -C .
           python3 tests/check_catalog.py
-          rm bootstrap/erafall-project.zip.b64
+          rm bootstrap/erafall-project.tar.xz.b64
           rmdir bootstrap || true
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
